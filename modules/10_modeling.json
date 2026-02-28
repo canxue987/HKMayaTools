@@ -1,0 +1,49 @@
+{
+    "name": "建模辅助",
+    "tools": [
+        {
+            "id": "fb6c5026-6eb2-4549-817f-d40f7413b78f",
+            "name": "圆柱替换",
+            "type": "command",
+            "icon": "auto_cyl.png",
+            "tooltip": "分析所选物体的拓扑，\n自动创建一个匹配大小和朝向的标准圆柱体。",
+            "command": "import tool_圆柱替换_1768017974\ntool_圆柱替换_1768017974.run()",
+            "favorite": true
+        },
+        {
+            "id": "aa088e10-fc7b-4bba-9fd2-c14525066ca7",
+            "name": "智能桥接",
+            "type": "command",
+            "icon": "bridge.png",
+            "tooltip": "桥接并自动优化布线，\n支持对垂直方向的边进行平滑处理。",
+            "command": "import tool_智能桥接_1768018251\ntool_智能桥接_1768018251.run()",
+            "favorite": false
+        },
+        {
+            "id": "f5efe35f-6d66-45b5-9b91-308beff839a1",
+            "name": "归零模型",
+            "type": "command",
+            "icon": "归零模型_1767856281.png",
+            "tooltip": "自动将模型归零到世界中心",
+            "command": "import tool_归零模型_1768020131\ntool_归零模型_1768020131.run()",
+            "favorite": false
+        },
+        {
+            "id": "558839c6-2c13-43c0-bccb-8cd7223582b8",
+            "name": "智能封口",
+            "type": "command",
+            "icon": "extrude.png",
+            "tooltip": "挤出选中的边并合并到中心点，\n快速制作锥形封口。",
+            "command": "import tool_智能封口_1768018165\ntool_智能封口_1768018165.run()",
+            "favorite": false
+        },
+        {
+            "name": "模型库",
+            "type": "command",
+            "icon": "icon_library.png",
+            "tooltip": "个人模型资产库，支持FBX/MA格式一键存取",
+            "command": "import tool_model_library\ntool_model_library.run()",
+            "favorite": false
+        }
+    ]
+}

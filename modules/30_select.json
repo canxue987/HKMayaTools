@@ -1,0 +1,51 @@
+{
+    "name": "选择工具",
+    "tools": [
+        {
+            "id": "376457ab-7238-4974-9582-b75f150d4975",
+            "name": "选择相似",
+            "type": "command",
+            "icon": "select_sim.png",
+            "tooltip": "根据拓扑结构或面积，\n批量选择场景中相似的物体。",
+            "command": "import tool_选择相似_1768020284\ntool_选择相似_1768020284.run()",
+            "favorite": false
+        },
+        {
+            "id": "04526bde-9e45-4723-a52e-f5ad949788e0",
+            "name": "自动Loop",
+            "type": "command",
+            "icon": "auto_sel.png",
+            "tooltip": "开启后，单击一条边\n会自动选中整条循环边。",
+            "command": "import tool_自动Loop_1768020342\ntool_自动Loop_1768020342.run()",
+            "favorite": false
+        },
+        {
+            "id": "5aaa7d5c-aa83-4f7e-ab15-0b5e42e0d9c9",
+            "name": "重命名",
+            "type": "command",
+            "icon": "重命名_1767926468.png",
+            "tooltip": "批量重命名",
+            "command": "import tool_重命名_1768020441\ntool_重命名_1768020441.run()",
+            "favorite": false
+        },
+        {
+            "id": "91735977-51dd-4b3d-9917-a5886aa205bc",
+            "name": "间隔减选",
+            "type": "command",
+            "icon": "reduce.png",
+            "tooltip": "按间隔规律（如隔1选1）\n减少选中的循环边或环形边。",
+            "command": "import tool_间隔减选_1768020777\ntool_间隔减选_1768020777.run()",
+            "favorite": false
+        },
+        {
+            "name": "曲线生成",
+            "type": "command",
+            "command": "import tool_曲线生成_1768977837\ntool_曲线生成_1768977837.run()",
+            "tooltip": "基于截面生成平滑曲线或提取边中心",
+            "help_content": "基于截面生成平滑曲线或提取边中心",
+            "favorite": false,
+            "id": "5381d7a6-94ff-4965-b40a-0509f7f0feac",
+            "icon": "曲线生成_1768977837.png"
+        }
+    ]
+}

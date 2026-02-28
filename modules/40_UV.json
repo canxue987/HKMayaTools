@@ -1,0 +1,15 @@
+{
+    "name": "UV工具",
+    "tools": [
+        {
+            "name": "RizomUV",
+            "type": "command",
+            "command": "import tool_RizomUV_1768293986\ntool_RizomUV_1768293986.run()",
+            "tooltip": "RizomUV桥接工具",
+            "help_content": "",
+            "favorite": false,
+            "id": "bd4fa267-4a21-4c56-8b18-e3b1c4abe075",
+            "icon": "RizomUV_1768293986.png"
+        }
+    ]
+}
