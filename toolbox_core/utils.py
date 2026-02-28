@@ -115,24 +115,27 @@ def get_recent_tools_data():
             # 排除非工具配置文件
             if filename in [config.FAV_FILE_NAME, config.HOTKEY_FILE_NAME, config.RECENT_FILE_NAME]: continue
             
-            # === 修改点：使用 safe_json_load 替代原有的 try...except ===
             path = os.path.join(modules_dir, filename)
             data = safe_json_load(path, default_val={})
             
-            for tool in data.get("tools", []):
-                tid = tool.get("id", tool.get("name"))
-                # 确保把 source_file 也带上，方便后续操作
-                tool["__source_file__"] = path
-                id_tool_map[tid] = tool
+            # === 【核心修复点】增加类型判断，防止文件内容为列表时报错 ===
+            if isinstance(data, dict):
+                for tool in data.get("tools", []):
+                    tid = tool.get("id", tool.get("name"))
+                    # 确保把 source_file 也带上，方便后续操作
+                    tool["__source_file__"] = path
+                    id_tool_map[tid] = tool
 
     # 2. 读取 recent.json
-    # === 修改点：使用 safe_json_load，省去了判断路径存在和异常拦截 ===
     recent_ids = safe_json_load(recent_path, default_val=[])
-    for rid in recent_ids:
-        if rid in id_tool_map:
-            import copy
-            tool = copy.copy(id_tool_map[rid])
-            recent_tools.append(tool)
+    
+    # 同样加上类型保护，防止 recent.json 损坏变成字典
+    if isinstance(recent_ids, list):
+        for rid in recent_ids:
+            if rid in id_tool_map:
+                import copy
+                tool = copy.copy(id_tool_map[rid])
+                recent_tools.append(tool)
         
     return recent_tools
 

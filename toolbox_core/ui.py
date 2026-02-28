@@ -75,10 +75,8 @@ class ToolExecutionGuard(object):
     def __enter__(self):
         # 1. 定义哑巴函数 (Mock)
         def mock_window(*args, **kwargs):
-            # 如果脚本查询窗口是否存在，返回 False，骗它去新建
             if kwargs.get("exists") or kwargs.get("ex"):
                 return False
-            # 返回我们的容器名，假装它就是新窗口
             return self.target_layout
             
         def mock_pass(*args, **kwargs):
@@ -87,22 +85,32 @@ class ToolExecutionGuard(object):
         # 2. 实施劫持
         cmds.window = mock_window
         cmds.showWindow = mock_pass
-        # 顺便把 dockControl 也劫持了，防止某些工具用 dock
         if self.original_dock: cmds.dockControl = mock_pass
         if self.original_workspace: cmds.workspaceControl = mock_pass
         
-        # 3. 强制设定父级 (Redirect Output)
-        # 这样工具里的 columnLayout 等都会建立在这个 target_layout 下
+        # 3. 【核心修复】记录旧的 parent
+        try:
+            self.old_parent = cmds.setParent(q=True)
+        except:
+            self.old_parent = None
+            
+        # 强制设定父级
         cmds.setParent(self.target_layout)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # 4. 恢复环境 (一定要恢复，否则 Maya 窗口系统会瘫痪)
+        # 4. 恢复环境 
         cmds.window = self.original_window
         cmds.showWindow = self.original_show
         if self.original_dock: cmds.dockControl = self.original_dock
         if self.original_workspace: cmds.workspaceControl = self.original_workspace
-
+        
+        # 5. 【核心修复】恢复旧的 parent，消除野指针
+        if getattr(self, "old_parent", None):
+            try:
+                cmds.setParent(self.old_parent)
+            except:
+                pass
 
 # =========================================================================
 # 自定义 MDI 子窗口
@@ -265,9 +273,16 @@ class CanvasWindow(QtWidgets.QMainWindow):
         tool_name = tool_data.get("name", "Tool")
         print(u"--- 开始嵌入流程: {} ---".format(tool_name))
         
-        # === Step 1: 筑巢 (改进版) ===
-        # 使用 columnLayout 替代 scrollLayout
-        # adj=True (adjustableColumn) 会强制子控件填满宽度，消除横向滚动条
+        # === 【防御性编程】消除 Maya 父级野指针 ===
+        # 尝试查询当前 parent，如果抛出异常说明父级已失效（被意外删除）
+        try:
+            cmds.setParent(q=True)
+        except:
+            # 强制回退到 Maya 主窗口作为安全基准
+            try: cmds.setParent("MayaWindow")
+            except: pass
+        
+        # === Step 1: 筑巢 ===
         nest_layout_name = cmds.columnLayout(adjustableColumn=True)
         
         nest_widget = get_maya_layout_widget(nest_layout_name)
@@ -293,23 +308,25 @@ class CanvasWindow(QtWidgets.QMainWindow):
         except Exception as e:
             print(u"工具执行异常: {}".format(e))
 
-        # === Step 3: 尺寸自适应与补漏 ===
-        current_children = cmds.layout(nest_layout_name, q=True, childArray=True)
+        # === Step 3: 尺寸自适应与验收补漏 ===
+        try:
+            current_children = cmds.layout(nest_layout_name, q=True, childArray=True)
+        except:
+            current_children = None
+            
         final_children_count = len(current_children) if current_children else 0
         
         if final_children_count > initial_children_count:
+            # A. 成功捕获 CMDs 工具
             print(u"√ 成功嵌入 CMDs 工具")
             
-            # 【关键优化】强制刷新，让 Layout 计算出真实大小
+            # 强制刷新，让 Layout 计算出真实大小
             QtWidgets.QApplication.processEvents()
             
-            # 获取建议大小
             sh = nest_widget.sizeHint()
             
-            # 宽度：给一点余量(30px)防止紧贴边缘
-            # 高度：加上标题栏高度(30px)，并限制最大高度以免撑满屏幕
-            target_w = max(sh.width() + 30, 300) 
-            target_h = min(sh.height() + 40, 800) # 限制最大高度为 800
+            target_w = max(sh.width() + 30, 250) 
+            target_h = min(sh.height() + 40, 800)
             
             sub_window.resize(target_w, target_h)
             
@@ -317,45 +334,15 @@ class CanvasWindow(QtWidgets.QMainWindow):
                 sub_window.setGeometry(*geometry)
                 
         else:
+            # B. 容器为空 -> 无UI脚本，或PySide独立窗口
             print(u"× 容器为空，启动雷达抓捕...")
+            
             sub_window.close()
             sub_window.deleteLater()
+            
             try: cmds.deleteUI(nest_layout_name)
             except: pass
             
-            self.radar_capture(tool_data, geometry)
-
-        # === Step 3: 验收与补漏 (Validation & Fallback) ===
-        
-        # 检查巢里有没有蛋 (控件)
-        current_children = cmds.layout(nest_layout_name, q=True, childArray=True)
-        final_children_count = len(current_children) if current_children else 0
-        
-        if final_children_count > initial_children_count:
-            # A. 成功捕获 CMDs 工具！
-            print(u"√ 成功嵌入 CMDs 工具")
-            
-            # 调整一下大小
-            sh = nest_widget.sizeHint()
-            w = max(sh.width(), 250)
-            h = max(sh.height(), 150)
-            sub_window.resize(w, h + 30)
-            
-            if geometry:
-                sub_window.setGeometry(*geometry)
-                
-        else:
-            # B. 巢是空的 -> 说明这是个 PySide 工具，它自己弹窗出去了
-            print(u"× 容器为空，判断为独立窗口工具，启动雷达抓捕...")
-            
-            # 销毁刚才建立的空巢
-            sub_window.close()
-            sub_window.deleteLater()
-            # 也要删除那个临时的 maya layout，防止内存泄漏
-            try: cmds.deleteUI(nest_layout_name)
-            except: pass
-            
-            # 启动 Plan B: 雷达抓捕 (针对 PySide 窗口)
             self.radar_capture(tool_data, geometry)
 
     def radar_capture(self, tool_data, geometry=None):
