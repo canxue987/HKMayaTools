@@ -121,10 +121,12 @@ def get_recent_tools_data():
             # === 【核心修复点】增加类型判断，防止文件内容为列表时报错 ===
             if isinstance(data, dict):
                 for tool in data.get("tools", []):
-                    tid = tool.get("id", tool.get("name"))
-                    # 确保把 source_file 也带上，方便后续操作
-                    tool["__source_file__"] = path
-                    id_tool_map[tid] = tool
+                    # 【新增保护】确保 tool 是个字典，防止 JSON 格式写错混入了字符串
+                    if isinstance(tool, dict):
+                        tid = tool.get("id", tool.get("name"))
+                        # 确保把 source_file 也带上，方便后续操作
+                        tool["__source_file__"] = path
+                        id_tool_map[tid] = tool
 
     # 2. 读取 recent.json
     recent_ids = safe_json_load(recent_path, default_val=[])
@@ -177,6 +179,9 @@ def load_tools_data():
             valid_tools = []
             
             for tool in data["tools"]:  
+                # 【新增保护】跳过格式损坏的非字典条目
+                if not isinstance(tool, dict):
+                    continue
                 tool["__source_file__"] = path 
                 
                 # 确保有 ID
