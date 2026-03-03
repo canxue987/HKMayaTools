@@ -208,9 +208,11 @@ class PublishDialog(QtWidgets.QDialog):
                 if f == config.USER_FILE_NAME: continue
                 path = os.path.join(config.MODULES_DIR, f)
                 
-                # === 修改点：使用安全加载，无需 try...except ===
+                # === 修改点：使用安全加载 ===
                 data = utils.safe_json_load(path, default_val={})
-                if data: # 如果成功读到内容
+                
+                # 【核心修复】必须确保读出来的数据是字典(dict)才能调用 get，过滤掉保存列表(list)的配置JSON
+                if isinstance(data, dict): 
                     name = data.get("name", f)
                     self.combo_category.addItem(name, f)
 
@@ -425,9 +427,10 @@ class EditDialog(QtWidgets.QDialog):
             fname = os.path.basename(f)
             if fname == config.FAV_FILE_NAME: continue
             
-            # === 修改点：使用安全加载 ===
             data = utils.safe_json_load(f, default_val={})
-            if data:
+            
+            # 【核心修复】增加字典类型判断
+            if isinstance(data, dict):
                 cat_name = data.get("name", fname)
                 prefix = u"[本地] " if fname == config.USER_FILE_NAME else u"[公共] "
                 self.combo_category.addItem(prefix + cat_name, f)

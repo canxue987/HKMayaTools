@@ -65,6 +65,16 @@
             "favorite": false,
             "id": "1b5e5314-01f6-4483-aef5-8cc67738761f",
             "icon": "矫正工具_1768726448.png"
+        },
+        {
+            "name": "智能四边",
+            "type": "command",
+            "command": "import tool_智能四边_1772541004\ntool_智能四边_1772541004.run()",
+            "tooltip": "",
+            "help_content": "",
+            "favorite": false,
+            "id": "c7150b65-5ef1-45ac-a535-797af3efe1b6",
+            "icon": "智能四边_1772541004.png"
         }
     ]
 }

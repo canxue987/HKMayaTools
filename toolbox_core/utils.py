@@ -259,16 +259,22 @@ def find_tool_by_id(tool_id):
     files = [f for f in os.listdir(modules_dir) if f.lower().endswith(".json")]
     
     for filename in files:
-        if filename in [config.FAV_FILE_NAME, config.HOTKEY_FILE_NAME]:
+        # 排除掉已知的非工具配置文件 (加上 recent 和 super_panel_state)
+        if filename in [config.FAV_FILE_NAME, config.HOTKEY_FILE_NAME, config.RECENT_FILE_NAME, "super_panel_state.json"]:
             continue
 
         path = os.path.join(modules_dir, filename)
         # 使用安全加载函数
         data = safe_json_load(path, default_val={})
-        for tool in data.get("tools", []):
-            tid = tool.get("id", tool.get("name"))
-            if tid == tool_id:
-                return tool
+        
+        # === 【核心修复点】确保读出来的数据是字典(dict)，否则直接跳过 ===
+        if isinstance(data, dict):
+            for tool in data.get("tools", []):
+                # 确保 tool 也是字典
+                if isinstance(tool, dict):
+                    tid = tool.get("id", tool.get("name"))
+                    if tid == tool_id:
+                        return tool
     return None
 
 # === 快捷键管理 (核心修复部分) ===
