@@ -23,6 +23,10 @@ _DRAGGED_WIDGET = None
 # ====================================================================
 # 自由拖放容器 (Free-form Drop Container)
 # ====================================================================
+# ====================================================================
+# 自由拖放容器 (Free-form Drop Container)
+# 支持内部模块重排 + 外部工具拖入
+# ====================================================================
 class PanelContainer(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super(PanelContainer, self).__init__(parent)
@@ -30,16 +34,18 @@ class PanelContainer(QtWidgets.QWidget):
         self.on_reorder_callback = None
 
     def dragEnterEvent(self, event):
-        if event.mimeData().text() == "hk_tool_drag":
+        text = event.mimeData().text()
+        # 允许内部模块把手拖拽 (hk_tool_drag) 或 外部工具按钮拖入 (JSON字符串以 '{' 开头)
+        if text == "hk_tool_drag" or text.startswith("{"):
             event.acceptProposedAction()
 
     def dragMoveEvent(self, event):
-        event.acceptProposedAction()
+        text = event.mimeData().text()
+        if text == "hk_tool_drag" or text.startswith("{"):
+            event.acceptProposedAction()
 
     def dropEvent(self, event):
-        global _DRAGGED_WIDGET
-        if not _DRAGGED_WIDGET: return
-        
+        text = event.mimeData().text()
         drop_pos = event.pos()
         layout = self.layout()
         
@@ -53,46 +59,58 @@ class PanelContainer(QtWidgets.QWidget):
                 if dx < min_dx:
                     min_dx = dx
                     target_col = i
-                    
-        # 2. 寻找该列中垂直方向的插入点
-        insert_before_item = None
-        if hasattr(layout, 'col_info') and layout.col_info:
-            col_items = layout.col_info[target_col]['items']
-            for item in col_items:
-                wid = item.widget()
-                if wid == _DRAGGED_WIDGET: continue
-                center_y = wid.geometry().center().y()
-                # 如果鼠标位置在该工具中心点上方，就插在它前面
-                if drop_pos.y() < center_y:
-                    insert_before_item = item
+
+        # === 分支 A：从外部列表拖入新工具 ===
+        if text.startswith("{"):
+            try:
+                import json
+                tool_data = json.loads(text)
+                # 使用单次定时器异步执行，防止 Qt 的拖拽事件循环卡死 UI
+                QtCore.QTimer.singleShot(10, lambda: SuperPanelManager.run_and_embed(tool_data, init_col=target_col))
+            except Exception as e:
+                print(u"拖拽解析失败:", e)
+            event.acceptProposedAction()
+            return
+
+        # === 分支 B：内部模块互相拖拽重排 ===
+        if text == "hk_tool_drag":
+            global _DRAGGED_WIDGET
+            if not _DRAGGED_WIDGET: return
+            
+            insert_before_item = None
+            if hasattr(layout, 'col_info') and layout.col_info:
+                col_items = layout.col_info[target_col]['items']
+                for item in col_items:
+                    wid = item.widget()
+                    if wid == _DRAGGED_WIDGET: continue
+                    center_y = wid.geometry().center().y()
+                    if drop_pos.y() < center_y:
+                        insert_before_item = item
+                        break
+                        
+            _DRAGGED_WIDGET._assigned_col = target_col
+            
+            from_idx = -1
+            for i, item in enumerate(layout.itemList):
+                if item.widget() == _DRAGGED_WIDGET:
+                    from_idx = i
                     break
                     
-        # 3. 更新被拖拽控件的列属性
-        _DRAGGED_WIDGET._assigned_col = target_col
-        
-        # 4. 在一维列表中重构顺序
-        from_idx = -1
-        for i, item in enumerate(layout.itemList):
-            if item.widget() == _DRAGGED_WIDGET:
-                from_idx = i
-                break
+            if from_idx != -1:
+                item = layout.itemList.pop(from_idx)
+                if insert_before_item:
+                    target_idx = layout.itemList.index(insert_before_item)
+                else:
+                    target_idx = len(layout.itemList)
+                    
+                layout.itemList.insert(target_idx, item)
+                layout.invalidate()
+                layout.activate() 
                 
-        if from_idx != -1:
-            item = layout.itemList.pop(from_idx)
-            
-            if insert_before_item:
-                target_idx = layout.itemList.index(insert_before_item)
-            else:
-                target_idx = len(layout.itemList)
-                
-            layout.itemList.insert(target_idx, item)
-            layout.invalidate()
-            layout.activate() 
-            
-            if self.on_reorder_callback:
-                self.on_reorder_callback()
-                
-        event.acceptProposedAction()
+                if self.on_reorder_callback:
+                    self.on_reorder_callback()
+                    
+            event.acceptProposedAction()
 
 # ====================================================================
 # 拖拽把手事件过滤器
@@ -593,9 +611,20 @@ class SuperPanelManager(object):
         tool_name = tool_data.get("name", "Tool")
         tool_id = tool_data.get("id")
 
+        # 防重复检测
+        if cls._current_layout:
+            for item in cls._current_layout.itemList:
+                wid = item.widget()
+                if hasattr(wid, 'tool_id') and wid.tool_id == tool_id:
+                    if not wid.is_expanded:
+                        wid.toggle_content() 
+                    print(u"[{}] 已在超级面板中，跳过重复添加。".format(tool_name))
+                    return True
+
         old_windows = set(QtWidgets.QApplication.topLevelWidgets())
 
         try:
+            import toolbox_core.worker as worker
             worker.execute_tool(tool_data)
         except Exception as e:
             print(u"执行异常: {}".format(e))
@@ -607,16 +636,27 @@ class SuperPanelManager(object):
 
         new_windows = set(QtWidgets.QApplication.topLevelWidgets()) - old_windows
         target_win = None
+        
         if new_windows:
             for win in new_windows:
-                if win.objectName() != 'MayaWindow' and win.isVisible():
-                    target_win = win
-                    break
-
-        if not target_win:
-            active = QtWidgets.QApplication.activeWindow()
-            if active and active.objectName() != 'MayaWindow':
-                target_win = active
+                # 排除不可见和主窗口
+                if not win.isVisible() or win.objectName() == 'MayaWindow': 
+                    continue
+                
+                # === 【核心安全修复】 ===
+                # 坚决不使用任何会引发 PySide6 报错的底层 Flag 强制转换
+                
+                # 1. 通过类名特征排除 Maya 的内部悬浮窗 (inViewMessage)
+                cls_name = str(win.__class__.__name__)
+                if "InView" in cls_name or "Message" in cls_name or "Menu" in cls_name or "Tip" in cls_name or "Popup" in cls_name:
+                    continue
+                
+                # 2. 排除鼠标穿透的纯视觉浮层 (找回窗口的绿色提示字就是这种)
+                if win.testAttribute(QtCore.Qt.WA_TransparentForMouseEvents):
+                    continue
+                
+                target_win = win
+                break
 
         if target_win and cls._current_layout:
             sh = target_win.sizeHint()
@@ -624,7 +664,7 @@ class SuperPanelManager(object):
             
             section = NativeWorkspaceManager.add_section_to_panel(cls._current_layout, tool_id, tool_name, expanded=True, init_width=optimal_w)
 
-            # --- 【核心智能掉落】：如果是新打开的工具，自动找最矮的那一列塞进去 ---
+            # 核心智能掉落
             if init_col >= 0:
                 section._assigned_col = init_col
             else:
@@ -638,7 +678,6 @@ class SuperPanelManager(object):
                     section._assigned_col = min_col
                 else:
                     section._assigned_col = 0
-            # ----------------------------------------------------------------------
 
             target_win.setParent(section.content_frame)
             target_win.setWindowFlags(QtCore.Qt.Widget)
@@ -661,4 +700,9 @@ class SuperPanelManager(object):
             section.closed_signal.connect(on_close)
             return True
             
-        return False
+        else:
+            # === 【新增】如果没有抓到窗口，且是用户主动拖放进来的 (save_state=True) ===
+            if save_state:
+                import maya.cmds as cmds
+                cmds.warning(u"HKToolbox: 该工具【{}】属于无界面动作脚本，已直接执行，无需吸附。".format(tool_name))
+            return False

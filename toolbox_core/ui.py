@@ -154,7 +154,7 @@ class MayaToolBoxUI(QtWidgets.QWidget):
         self.btn_publish.clicked.connect(self.open_publish_dialog)
 
         # ------------------- 核心修改：雷达磁吸按钮 -------------------
-        self.btn_magnet = QtWidgets.QPushButton(u"🧲") 
+        self.btn_magnet = QtWidgets.QPushButton(u"◲") 
         self.btn_magnet.setObjectName("SideBtn")
         self.btn_magnet.setFixedSize(40, 30)
         self.btn_magnet.setToolTip(u"磁化活跃窗口 (可吸附任意Maya独立面板)")
@@ -192,25 +192,12 @@ class MayaToolBoxUI(QtWidgets.QWidget):
         SuperPanelManager.toggle_panel()
 
     def run_tool_and_magnetize(self, tool_data):
-        """智能分发：如果面板开着就塞进面板，没开就正常弹出"""
-        from toolbox_core.native_ui import SuperPanelManager
-        
-        # 1. 探测超级工具包是否开启
-        if SuperPanelManager.is_panel_open():
-            # 执行剥离并注入面板
-            success = SuperPanelManager.run_and_embed(tool_data)
-            if success:
-                try: cmds.inViewMessage(amg=u'<span style="color:#00FF00;">已吸附到超级面板: {}</span>'.format(tool_data.get("name")), pos='midCenterTop', fade=True)
-                except: pass
-            else:
-                print(u"该工具无独立UI，直接执行完毕。")
-        else:
-            # 2. 面板没开，走最原始的安全执行，让窗口自己弹出来
-            import toolbox_core.worker as worker
-            try:
-                worker.execute_tool(tool_data)
-            except Exception as e:
-                print(u"执行异常: {}".format(e))
+        """【回归纯粹】点击工具按钮只负责执行，不再自动抓取！想吸附必须手动拖拽进面板"""
+        import toolbox_core.worker as worker
+        try:
+            worker.execute_tool(tool_data)
+        except Exception as e:
+            print(u"执行异常: {}".format(e))
 
     def toggle_dock_mode(self):
         try:
