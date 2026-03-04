@@ -67,6 +67,10 @@ def sendToRizom(*args):
     cmds.select(selected_objs, replace=True)
     export_options = "groups=1;ptgroups=1;materials=1;smoothing=1;normals=1;uvs=1"
     
+    # 确保 OBJ 插件加载
+    if not cmds.pluginInfo('objExport', query=True, loaded=True):
+        cmds.loadPlugin('objExport')
+        
     # Python 2/3 兼容导出
     cmds.file(
         exportFile,
@@ -139,7 +143,7 @@ def getFromRizom(*args):
     importFile = os.path.join(tempfile.gettempdir(), "RizomUVMayaBridge.obj")
     
     # 清理旧命名空间
-    allNamespaces = cmds.namespaceInfo(listOnlyNamespaces=True, recurse=True)
+    allNamespaces = cmds.namespaceInfo(listOnlyNamespaces=True, recurse=True) or []
     for ns in allNamespaces:
         if "RIZOMUV" in ns:
             try:
@@ -161,26 +165,38 @@ def getFromRizom(*args):
             cmds.warning("Import file not found: {0}".format(importFile))
             return
             
+    if not cmds.pluginInfo('objExport', query=True, loaded=True):
+        cmds.loadPlugin('objExport')
+            
     cmds.file(importFile, i=True, type="OBJ", ignoreVersion=True, mergeNamespacesOnClash=True, namespace="RIZOMUV")
     
-    imported_transforms = cmds.ls("RIZOMUV:*", transforms=True, long=True)
-    if not imported_transforms:
+    # 核心修复1：直接提取网格形状反推 Transform，避免空组干扰
+    imported_meshes = cmds.ls("RIZOMUV:*", type="mesh", long=True)
+    if not imported_meshes:
         cmds.warning("No objects imported from RizomUV.")
         return
         
-    for orig_obj in originalOBJs:
-        target_obj_name = orig_obj.split('|')[-1]
+    imported_transforms = list(set([cmds.listRelatives(m, parent=True, fullPath=True)[0] for m in imported_meshes]))
+        
+    for i, orig_obj in enumerate(originalOBJs):
+        # 剥离所有组层级和命名空间，只留纯名字
+        target_obj_name = orig_obj.split('|')[-1].split(':')[-1]
         corresponding_imp = None
         
+        # 匹配策略 A: 按名字模糊匹配
         for imp_transform in imported_transforms:
-            imp_name = imp_transform.split(':')[-1]
-            if imp_name == target_obj_name:
+            imp_name = imp_transform.split('|')[-1].split(':')[-1]
+            if imp_name == target_obj_name or imp_name.startswith(target_obj_name):
                 corresponding_imp = imp_transform
                 break
                 
+        # 匹配策略 B: 如果由于特殊字符导致名字全变，只要数量一致，按选择顺序强制一对一匹配！
+        if not corresponding_imp and len(originalOBJs) == len(imported_transforms):
+            corresponding_imp = imported_transforms[i]
+            
         if corresponding_imp:
-            src_shapes = cmds.listRelatives(corresponding_imp, shapes=True, fullPath=True)
-            trg_shapes = cmds.listRelatives(orig_obj, shapes=True, fullPath=True)
+            src_shapes = cmds.listRelatives(corresponding_imp, shapes=True, fullPath=True, type="mesh")
+            trg_shapes = cmds.listRelatives(orig_obj, shapes=True, fullPath=True, type="mesh")
             
             if not src_shapes or not trg_shapes:
                 continue
@@ -189,24 +205,28 @@ def getFromRizom(*args):
             trg = trg_shapes[0]
             
             # 传递 UV
-            cmds.transferAttributes(
-                src, trg,
-                transferPositions=0,
-                transferNormals=0,
-                transferUVs=2,
-                transferColors=0,
-                sampleSpace=4,
-                sourceUvSpace="map1",
-                targetUvSpace="map1",
-                searchMethod=3,
-                flipUVs=0,
-                colorBorders=1
-            )
-            cmds.delete(trg, ch=True)
-            print("Transferred UVs from {0} to {1}".format(src, trg))
+            try:
+                cmds.transferAttributes(
+                    src, trg,
+                    transferPositions=0,
+                    transferNormals=0,
+                    transferUVs=2,
+                    transferColors=0,
+                    sampleSpace=4,
+                    sourceUvSpace="map1",
+                    targetUvSpace="map1",
+                    searchMethod=3,
+                    flipUVs=0,
+                    colorBorders=1
+                )
+                cmds.delete(trg, ch=True)
+                print("Transferred UVs from {0} to {1}".format(src, trg))
+            except Exception as e:
+                cmds.warning("Failed to transfer UVs: {0}".format(e))
         else:
             cmds.warning("No corresponding object found for {0}".format(orig_obj))
             
+    # 清理导入的临时模型
     for obj in imported_transforms:
         try:
             if cmds.objExists(obj):
@@ -228,13 +248,18 @@ def rizomAutoRoundtrip(*args):
     exportFileUnix = exportFile.replace("\\", "/")
     
     cmds.select(originalOBJs, replace=True)
+    
+    if not cmds.pluginInfo('objExport', query=True, loaded=True):
+        cmds.loadPlugin('objExport')
+        
+    # Auto功能必须包含uvs=1，否则Rizom可能无数据可分
     cmds.file(
         exportFile,
         force=True,
         preserveReferences=True,
         type="OBJexport",
         exportSelected=True,
-        options="groups=1;ptgroups=1;materials=1;smoothing=1;normals=1"
+        options="groups=1;ptgroups=1;materials=1;smoothing=1;normals=1;uvs=1" 
     )
     
     luascript = """
@@ -253,17 +278,23 @@ ZomQuit()
         f.write(luascript)
     luaFileUnix = luaFile.replace("\\", "/")
     
-    cmd = [rizomPath, '--execute', luaFileUnix]
-    print("Executing RizomUV...")
+    # 核心修复2：修改参数为 -cfi 以让 RizomUV 正确读取脚本
+    cmd = [rizomPath, '-cfi', luaFileUnix]
+    print("Executing RizomUV Auto Unfold...")
     try:
+        kwargs = {}
+        # 隐藏 Windows 下调用子进程时的黑框框
         if platform.system() == "Windows":
-            subprocess.call(cmd)
-        else:
-            subprocess.call(cmd)
+            kwargs['creationflags'] = 0x08000000 
+        subprocess.call(cmd, **kwargs)
     except Exception as e:
         cmds.warning("Failed to execute RizomUV: {0}".format(e))
+        return
         
-    time.sleep(2)
+    time.sleep(1) # 给系统一点点写入缓冲时间
+    
+    # 因为 getFromRizom 依赖当前的选择，所以在这里重新选中物体
+    cmds.select(originalOBJs, replace=True)
     getFromRizom()
     
     if os.path.exists(luaFile):
@@ -277,42 +308,29 @@ def createUI():
     if cmds.window("rizomUVBridgeWin", exists=True):
         cmds.deleteUI("rizomUVBridgeWin", window=True)
         
-    # 稍微增加一点高度以容纳新按钮
     window = cmds.window("rizomUVBridgeWin", title="RizomUV Bridge", widthHeight=(250, 130))
-    
     main_layout = cmds.columnLayout(adjustableColumn=True, rowSpacing=5)
-    
-    # 顶部留白
     cmds.separator(h=5, style='none')
     
-    # 1. 发送区域
     cmds.button(label="发送到 Rizom", command=sendToRizom, height=30, backgroundColor=(0.23, 0.23, 0.23))
     cmds.checkBox('uvcheck', label='包含现有UV', align='center', value=True)
     
     cmds.separator(h=5, style='in')
     
-    # 2. 接收区域
     cmds.button(label="从 Rizom 获取", command=getFromRizom, height=30, backgroundColor=(0.23, 0.23, 0.23))
     cmds.checkBox('linecheck', label='修复长行', align='center', value=False)
     
     cmds.separator(h=5, style='in')
     
-    # 3. 自动区域
     cmds.button(label="Auto Unfold (自动展开)", command=rizomAutoRoundtrip, height=30, backgroundColor=(0.3, 0.4, 0.3))
     
-    # 4. 【新增】设置区域
-    # 使用双分割线区分功能区和设置区
     cmds.separator(h=10, style='double')
-    
-    # 底部设置按钮，稍微矮一点，颜色淡一点
     cmds.button(label=u"⚙ 设置路径", 
                 command=set_rizom_path_manual, 
                 height=24, 
                 backgroundColor=(0.2, 0.2, 0.2),
                 annotation="Click to change the rizomuv.exe path")
-    
     cmds.separator(h=5, style='none')
-
     cmds.showWindow(window)
 
 def run():

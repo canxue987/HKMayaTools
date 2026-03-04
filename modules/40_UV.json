@@ -10,6 +10,16 @@
             "favorite": false,
             "id": "bd4fa267-4a21-4c56-8b18-e3b1c4abe075",
             "icon": "RizomUV_1768293986.png"
+        },
+        {
+            "name": "UV清理",
+            "type": "command",
+            "command": "import tool_UV清理_1772615586\ntool_UV清理_1772615586.run()",
+            "tooltip": "快速对UV进行清理",
+            "help_content": "",
+            "favorite": false,
+            "id": "ea5143f8-803a-485e-a830-9f7c3ff1b1e0",
+            "icon": "UV清理_1772615586.png"
         }
     ]
 }

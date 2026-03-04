@@ -46,6 +46,16 @@
             "favorite": false,
             "id": "5381d7a6-94ff-4965-b40a-0509f7f0feac",
             "icon": "曲线生成_1768977837.png"
+        },
+        {
+            "name": "材质管理",
+            "type": "command",
+            "command": "import tool_材质管理_1772611441\ntool_材质管理_1772611441.run()",
+            "tooltip": "材质球管理器",
+            "help_content": "",
+            "favorite": false,
+            "id": "6be6f1d5-6715-4406-8f98-4b36d0802faf",
+            "icon": "材质管理_1772611441.png"
         }
     ]
 }
