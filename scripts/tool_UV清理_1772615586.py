@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import maya.cmds as cmds
 import maya.mel as mel
+
 # 智能适配 Maya 2025+ (PySide6) 与老版本 Maya (PySide2)
 try:
     from PySide6 import QtWidgets, QtCore, QtGui
@@ -10,8 +11,8 @@ except ImportError:
 class UVSetManager(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super(UVSetManager, self).__init__(parent)
-        self.setWindowTitle(u"UV通道管理器 (UV Set Manager) v3.1")
-        self.resize(450, 600)
+        self.setWindowTitle(u"UV通道管理器 (UV Set Manager) v3.2")
+        self.resize(450, 620)
         
         self.current_mesh = None 
         self.job_num = None
@@ -24,14 +25,26 @@ class UVSetManager(QtWidgets.QWidget):
     def setup_ui(self):
         main_layout = QtWidgets.QVBoxLayout(self)
 
-        # ================= 1. 顶部状态与一键清理 =================
-        grp_quick = QtWidgets.QGroupBox(u"★ 核心工作流：一键规范化")
+        # ================= 1. 顶部状态与一键清理/映射 =================
+        grp_quick = QtWidgets.QGroupBox(u"★ 核心工作流：清理与基础映射")
         grp_quick.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #4CAF50; margin-top: 10px;} QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px 0 3px; color: #4CAF50; }")
         lay_quick = QtWidgets.QVBoxLayout(grp_quick)
         
-        self.btn_one_click_clean = QtWidgets.QPushButton(u"一键清理选中模型：仅保留当前UV并重命名为 map1")
-        self.btn_one_click_clean.setStyleSheet("background-color: #2b5c3b; color: white; padding: 10px; font-weight: bold;")
+        self.btn_one_click_clean = QtWidgets.QPushButton(u"1. 一键清理模型：仅保留当前UV并重命名为 map1")
+        self.btn_one_click_clean.setStyleSheet("background-color: #2b5c3b; color: white; padding: 8px; font-weight: bold;")
         lay_quick.addWidget(self.btn_one_click_clean)
+        
+        # 新增：平面映射操作区
+        lay_proj = QtWidgets.QHBoxLayout()
+        self.combo_proj_axis = QtWidgets.QComboBox()
+        self.combo_proj_axis.addItems([u"最佳平面 (Best)", u"Y 轴 (Top)", u"X 轴 (Side)", u"Z 轴 (Front)", u"摄像机 (Camera)"])
+        self.btn_planar_map = QtWidgets.QPushButton(u"2. 对选中模型进行平面映射")
+        self.btn_planar_map.setStyleSheet("background-color: #3b5a75; color: white; padding: 5px;")
+        
+        lay_proj.addWidget(self.combo_proj_axis)
+        lay_proj.addWidget(self.btn_planar_map)
+        lay_quick.addLayout(lay_proj)
+        
         main_layout.addWidget(grp_quick)
 
         # ================= 2. 当前选中模型状态 =================
@@ -78,7 +91,7 @@ class UVSetManager(QtWidgets.QWidget):
         lay_transfer = QtWidgets.QVBoxLayout(grp_transfer)
         
         lay_options = QtWidgets.QHBoxLayout()
-        self.radio_topo = QtWidgets.QRadioButton(u"基于拓扑 (点线面需完全一致)")
+        self.radio_topo = QtWidgets.QRadioButton(u"基于拓扑 (点线面一致)")
         self.radio_topo.setChecked(True)
         self.radio_space = QtWidgets.QRadioButton(u"基于空间 (模型需重合)")
         lay_options.addWidget(self.radio_topo)
@@ -91,6 +104,7 @@ class UVSetManager(QtWidgets.QWidget):
 
         # ================= 信号连接 =================
         self.btn_one_click_clean.clicked.connect(self.one_click_cleanup)
+        self.btn_planar_map.clicked.connect(self.apply_planar_mapping) # 绑定映射功能
         self.btn_set_current.clicked.connect(self.set_current_uv_set)
         self.btn_add_uv.clicked.connect(self.add_uv_set)
         self.btn_rename_uv.clicked.connect(self.rename_uv_set)
@@ -106,7 +120,6 @@ class UVSetManager(QtWidgets.QWidget):
         try:
             self.list_uvs.count()
         except RuntimeError:
-            # 核心修复 1：使用 evalDeferred 延迟杀掉后台任务，避开“正在执行无法自杀”的报错
             if self.job_num and cmds.scriptJob(exists=self.job_num):
                 cmds.evalDeferred(lambda: cmds.scriptJob(kill=self.job_num))
             return
@@ -141,7 +154,6 @@ class UVSetManager(QtWidgets.QWidget):
         
         self.is_updating = True
         
-        # 核心修复 2：暂停记录撤销历史！防止瞬间选中/取消选中污染历史
         cmds.undoInfo(stateWithoutFlush=False)
         original_sel = cmds.ls(selection=True)
         try:
@@ -156,7 +168,6 @@ class UVSetManager(QtWidgets.QWidget):
         finally:
             if original_sel: cmds.select(original_sel, replace=True)
             else: cmds.select(clear=True)
-            # 恢复撤销记录
             cmds.undoInfo(stateWithoutFlush=True)
             self.is_updating = False
             
@@ -179,6 +190,49 @@ class UVSetManager(QtWidgets.QWidget):
             cmds.warning(u"请在列表中选择一个UV通道！")
             return None
         return sel_items[0].data(QtCore.Qt.UserRole)
+
+    # ================= 新增：基础平面映射功能 =================
+    def apply_planar_mapping(self):
+        sel_objs = cmds.ls(selection=True, dag=True, type='mesh', noIntermediate=True, long=True)
+        if not sel_objs:
+            return cmds.warning(u"请先在场景中选中要映射的模型！")
+
+        # 映射轴向代号字典
+        axis_map = {
+            0: 'b', # 最佳平面 Best Plane
+            1: 'y', # Y轴
+            2: 'x', # X轴
+            3: 'z', # Z轴
+            4: 'c'  # 摄像机 Camera
+        }
+        axis_code = axis_map.get(self.combo_proj_axis.currentIndex(), 'b')
+
+        self.is_updating = True
+        cmds.undoInfo(openChunk=True) # 开启撤销包裹
+        original_sel = cmds.ls(selection=True)
+        success_count = 0
+
+        try:
+            for mesh in sel_objs:
+                trans = cmds.listRelatives(mesh, parent=True, fullPath=True)[0]
+                cmds.select(trans, replace=True)
+                
+                try:
+                    # 执行平面映射
+                    cmds.polyPlanarProjection(trans, mapDirection=axis_code)
+                    # 映射完毕后自动清除历史，防止场景里产生大量的 polyPlanarProj 垃圾节点
+                    cmds.delete(trans, constructionHistory=True)
+                    success_count += 1
+                except Exception as e:
+                    print(f"为 {trans} 映射UV失败: {e}")
+        finally:
+            if original_sel: cmds.select(original_sel, replace=True)
+            else: cmds.select(clear=True)
+            cmds.undoInfo(closeChunk=True)
+            self.is_updating = False
+            
+        self.refresh_uv_list()
+        cmds.inViewMessage(amg=u"平面映射完成！成功处理 {} 个模型".format(success_count), pos='midCenter', fade=True)
 
     # ================= 基础管理 =================
     def set_current_uv_set(self):
@@ -230,7 +284,7 @@ class UVSetManager(QtWidgets.QWidget):
     def _safe_execute(self, func):
         """通用安全执行器：打包撤销块，防止撤销碎片化"""
         self.is_updating = True
-        cmds.undoInfo(openChunk=True) # 开启撤销打包块
+        cmds.undoInfo(openChunk=True) 
         original_sel = cmds.ls(selection=True)
         try:
             cmds.select(self.current_mesh, replace=True)
@@ -240,7 +294,7 @@ class UVSetManager(QtWidgets.QWidget):
         finally:
             if original_sel: cmds.select(original_sel, replace=True)
             else: cmds.select(clear=True)
-            cmds.undoInfo(closeChunk=True) # 关闭撤销打包块
+            cmds.undoInfo(closeChunk=True) 
             self.is_updating = False
             self.refresh_uv_list()
 
@@ -251,7 +305,7 @@ class UVSetManager(QtWidgets.QWidget):
             return cmds.warning(u"请先在场景中选中要清理的模型！")
             
         self.is_updating = True
-        cmds.undoInfo(openChunk=True) # 开启撤销打包块，支持一键 Ctrl+Z 撤回清理
+        cmds.undoInfo(openChunk=True) 
         original_sel = cmds.ls(selection=True)
         cleaned_count = 0
         
@@ -289,7 +343,7 @@ class UVSetManager(QtWidgets.QWidget):
         finally:
             if original_sel: cmds.select(original_sel, replace=True)
             else: cmds.select(clear=True)
-            cmds.undoInfo(closeChunk=True) # 关闭撤销打包块
+            cmds.undoInfo(closeChunk=True) 
             self.is_updating = False
             
         self.refresh_uv_list()
@@ -328,11 +382,11 @@ class UVSetManager(QtWidgets.QWidget):
         self.refresh_uv_list()
 
 def run():
-    global uv_manager_window_v4
-    try: uv_manager_window_v4.close()
+    global uv_manager_window_v5
+    try: uv_manager_window_v5.close()
     except: pass
-    uv_manager_window_v4 = UVSetManager()
-    uv_manager_window_v4.show()
+    uv_manager_window_v5 = UVSetManager()
+    uv_manager_window_v5.show()
 
 if __name__ == "__main__":
     run()

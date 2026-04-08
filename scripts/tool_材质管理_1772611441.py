@@ -12,7 +12,7 @@ except ImportError:
 class UltimateMaterialManager(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super(UltimateMaterialManager, self).__init__(parent)
-        self.setWindowTitle(u"材质管理器 (全能分栏版) v4")
+        self.setWindowTitle(u"材质管理器 (全能分栏版) v4.1")
         self.resize(850, 600)
         self.tabs_dict = {} 
         self.is_updating = False 
@@ -25,6 +25,11 @@ class UltimateMaterialManager(QtWidgets.QWidget):
         # ================= 左侧：高级多列列表与分栏管理 =================
         left_layout = QtWidgets.QVBoxLayout()
         
+        # 🟢 新增：顶部手动刷新按钮
+        self.btn_refresh = QtWidgets.QPushButton(u"🔄 刷新材质列表 (同步Maya最新材质)")
+        self.btn_refresh.setStyleSheet("background-color: #2b5c5c; color: white; padding: 6px; font-weight: bold;")
+        left_layout.addWidget(self.btn_refresh)
+
         self.tab_widget = QtWidgets.QTabWidget()
         left_layout.addWidget(self.tab_widget)
 
@@ -50,7 +55,7 @@ class UltimateMaterialManager(QtWidgets.QWidget):
         self.btn_new_lambert = QtWidgets.QPushButton(u"★ 为选中模型创建新 Lambert")
         self.btn_new_lambert.setStyleSheet("background-color: #3b5a75; color: white;")
         self.btn_select_from_model = QtWidgets.QPushButton(u"1. 从当前模型反选材质")
-        self.btn_select_from_model.setStyleSheet("background-color: #2b5c5c; color: white;")
+        self.btn_select_from_model.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
         self.btn_select_model = QtWidgets.QPushButton(u"2. 选择使用该材质的模型")
         self.btn_assign_mat = QtWidgets.QPushButton(u"3. 将选中材质赋予给模型")
         
@@ -107,6 +112,8 @@ class UltimateMaterialManager(QtWidgets.QWidget):
         main_layout.addLayout(right_layout, stretch=3)
 
         # ================= 信号连接 =================
+        self.btn_refresh.clicked.connect(self.refresh_material_list) # 刷新按钮绑定
+        
         self.btn_add_tab.clicked.connect(self.add_new_tab)
         self.btn_rename_tab.clicked.connect(self.rename_current_tab)
         self.btn_del_tab.clicked.connect(self.delete_current_tab)
@@ -182,13 +189,11 @@ class UltimateMaterialManager(QtWidgets.QWidget):
                     btn_tex = QtWidgets.QPushButton(f"🖼️ {tex_name}")
                     btn_tex.setStyleSheet("text-align: left; padding: 2px 5px;")
                     btn_tex.setToolTip(tex_path)
-                    # 传入贴图节点进行替换
                     btn_tex.clicked.connect(lambda checked=False, m=mat, tn=tex_node: self.assign_or_replace_texture(m, tn))
                     tree_widget.setItemWidget(item, 2, btn_tex)
                 else:
                     btn_tex = QtWidgets.QPushButton(u"➕ 点击指定贴图")
                     btn_tex.setStyleSheet("text-align: left; padding: 2px 5px; color: #888; border: 1px dashed #555;")
-                    # 不传贴图节点，代表需要新建
                     btn_tex.clicked.connect(lambda checked=False, m=mat: self.assign_or_replace_texture(m, None))
                     tree_widget.setItemWidget(item, 2, btn_tex)
                 
@@ -219,11 +224,7 @@ class UltimateMaterialManager(QtWidgets.QWidget):
                 cmds.warning(u"重命名失败: {}".format(e))
                 item.setText(0, old_name) 
 
-    # ================= 核心：贴图指定与替换逻辑 =================
     def assign_or_replace_texture(self, mat, file_node):
-        """需求更新：支持已有贴图替换，以及无贴图时新建连线"""
-        
-        # 1. 如果已有 file 节点，走替换逻辑
         if file_node:
             current_path = cmds.getAttr(file_node + ".fileTextureName")
             start_dir = os.path.dirname(current_path) if current_path and os.path.exists(current_path) else None
@@ -232,31 +233,25 @@ class UltimateMaterialManager(QtWidgets.QWidget):
                 cmds.setAttr(file_node + ".fileTextureName", new_path[0], type="string")
                 cmds.inViewMessage(amg=u"贴图已替换！", pos='midCenter', fade=True)
                 self.refresh_material_list() 
-        
-        # 2. 如果没有 file 节点，走新建连线逻辑
         else:
             new_path = cmds.fileDialog2(fileMode=1, caption=u"为材质球指定新贴图")
             if new_path:
-                # 确定要连线的属性 (不同材质球的漫反射通道名字不同)
                 target_attr = None
                 if cmds.objExists(mat + ".color"): target_attr = mat + ".color"
-                elif cmds.objExists(mat + ".baseColor"): target_attr = mat + ".baseColor" # 支持 Arnold/StandardSurface
+                elif cmds.objExists(mat + ".baseColor"): target_attr = mat + ".baseColor"
                 
                 if not target_attr:
                     return cmds.warning(u"抱歉，该材质球类型不支持通过此工具一键连接基础贴图！")
 
-                # 创建 file 节点和 2D 放置节点
                 new_file_node = cmds.shadingNode('file', asTexture=True, isColorManaged=True)
                 p2d = cmds.shadingNode('place2dTexture', asUtility=True)
                 
-                # 建立标准的 Maya 2D 贴图连线网络
                 attrs = ['coverage', 'translateFrame', 'rotateFrame', 'mirrorU', 'mirrorV', 'stagger', 'wrapU', 'wrapV', 'repeatUV', 'offset', 'rotateUV', 'noiseUV', 'vertexUvOne', 'vertexUvTwo', 'vertexUvThree', 'vertexCameraOne']
                 for attr in attrs:
                     cmds.connectAttr(p2d + '.' + attr, new_file_node + '.' + attr, f=True)
                 cmds.connectAttr(p2d + '.outUV', new_file_node + '.uvCoord', f=True)
                 cmds.connectAttr(p2d + '.outUvFilterSize', new_file_node + '.uvFilterSize', f=True)
                 
-                # 赋予路径并连接到材质球
                 cmds.setAttr(new_file_node + ".fileTextureName", new_path[0], type="string")
                 cmds.connectAttr(new_file_node + ".outColor", target_attr, force=True)
                 
@@ -287,7 +282,6 @@ class UltimateMaterialManager(QtWidgets.QWidget):
         if not current_tree: return []
         return [item.data(0, QtCore.Qt.UserRole) for item in current_tree.selectedItems()]
 
-    # ================= 一键 Lambert 功能 =================
     def create_and_assign_lambert(self):
         sel_objs = cmds.ls(selection=True, dag=True, type='mesh', noIntermediate=True)
         if not sel_objs:
@@ -301,7 +295,6 @@ class UltimateMaterialManager(QtWidgets.QWidget):
         self.refresh_material_list()
         cmds.inViewMessage(amg=u"已创建并赋予新 Lambert", pos='midCenter', fade=True)
 
-    # ================= 分栏管理 =================
     def get_mat_group(self, mat):
         if cmds.attributeQuery('hk_mat_group', node=mat, exists=True):
             return cmds.getAttr(mat + '.hk_mat_group') or u"未分组"
@@ -316,7 +309,21 @@ class UltimateMaterialManager(QtWidgets.QWidget):
         text, ok = QtWidgets.QInputDialog.getText(self, u"新建材质组", u"请输入新组名:")
         if ok and text:
             if text in self.tabs_dict: return cmds.warning(u"组名已存在！")
-            self.refresh_material_list() 
+            
+            tree_widget = QtWidgets.QTreeWidget()
+            tree_widget.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+            tree_widget.setHeaderLabels([u"材质名称 (双击修改)", u"关联模型", u"贴图操作 (点击指定/替换)"])
+            tree_widget.setColumnWidth(0, 160)
+            tree_widget.setColumnWidth(1, 150)
+            
+            tree_widget.itemSelectionChanged.connect(self.on_material_selected)
+            tree_widget.itemChanged.connect(self.on_item_renamed) 
+            
+            self.tabs_dict[text] = tree_widget
+            self.tab_widget.addTab(tree_widget, text)
+            
+            self.tab_widget.setCurrentWidget(tree_widget)
+            self.update_move_combo()
 
     def rename_current_tab(self):
         idx = self.tab_widget.currentIndex()
@@ -355,7 +362,6 @@ class UltimateMaterialManager(QtWidgets.QWidget):
             self.set_mat_group(mat, target_group)
         self.refresh_material_list()
 
-    # ================= 命名功能 =================
     def add_suffix(self):
         suffix = self.le_suffix.text()
         for mat in self.get_selected_materials():
@@ -377,7 +383,6 @@ class UltimateMaterialManager(QtWidgets.QWidget):
                         except Exception as e: print(f"重命名 {mat} 失败: {e}")
         self.refresh_material_list()
 
-    # ================= 其他核心操作 =================
     def select_material_from_model(self):
         sel_objs = cmds.ls(selection=True, dag=True, type='mesh', noIntermediate=True)
         if not sel_objs: return cmds.warning(u"请先选择模型！")
@@ -399,6 +404,7 @@ class UltimateMaterialManager(QtWidgets.QWidget):
                         item = root.child(idx)
                         if item.data(0, QtCore.Qt.UserRole) == mat:
                             item.setSelected(True)
+                            tree.scrollToItem(item) # 🟢 修复：自动滚动列表到该材质位置
                             found_tab_idx = self.tab_widget.indexOf(tree)
             if found_tab_idx != -1: self.tab_widget.setCurrentIndex(found_tab_idx)
 
@@ -479,11 +485,11 @@ class UltimateMaterialManager(QtWidgets.QWidget):
             self.on_material_selected()
 
 def run():
-    global um_window_v4
-    try: um_window_v4.close()
+    global um_window_v4_1
+    try: um_window_v4_1.close()
     except: pass
-    um_window_v4 = UltimateMaterialManager()
-    um_window_v4.show()
+    um_window_v4_1 = UltimateMaterialManager()
+    um_window_v4_1.show()
 
 if __name__ == "__main__":
     run()

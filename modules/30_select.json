@@ -56,6 +56,16 @@
             "favorite": false,
             "id": "6be6f1d5-6715-4406-8f98-4b36d0802faf",
             "icon": "材质管理_1772611441.png"
+        },
+        {
+            "name": "UnityBridge",
+            "type": "command",
+            "command": "import tool_UnityBridge_1773124645\ntool_UnityBridge_1773124645.run()",
+            "tooltip": "快速导出到Unity",
+            "help_content": "",
+            "favorite": false,
+            "id": "9938d34f-de33-45fa-badd-4b0be8f240bf",
+            "icon": "UnityBridge_1773124645.png"
         }
     ]
 }
